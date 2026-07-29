@@ -1,0 +1,276 @@
+wantType:
+  metadata:
+    name: spotify
+    title: Spotify Player
+    description: |
+      Spotify now-playing display with playback controls.
+      Polls the Spotify Web API every ~5 seconds to show the current track,
+      album artwork, and playback state. Supports play/pause/next/previous via
+      want state (PUT /api/v1/states/{id}/spotify_action with action string).
+
+      Prerequisites:
+        1. Create a Spotify Developer App at https://developer.spotify.com/dashboard
+           Add http://127.0.0.1:8080/api/v1/oauth/callback as a Redirect URI.
+           (Spotify prohibits "localhost" — must use 127.0.0.1)
+        2. Add credentials to ~/.mywant/config.yaml environments:
+             SPOTIFY_CLIENT_ID: <your client id>
+             SPOTIFY_CLIENT_SECRET: <your client secret>
+        3. Deploy this want with a fixed name, e.g. "my-spotify".
+        4. Run the OAuth setup script:
+             SPOTIFY_CLIENT_ID=xxx SPOTIFY_CLIENT_SECRET=yyy \
+               python3 ~/.mywant/custom-types/mywant-spotify-plugin/oauth_helper.py \
+               --want-name my-spotify
+           Authorize in the browser. The refresh token is stored automatically.
+           (Optional fallback: set SPOTIFY_REFRESH_TOKEN in config.yaml instead.)
+    version: '1.0'
+    category: media
+    pattern: independent
+    labels:
+      riffable: source
+      user-control: "true"
+
+  state:
+    # Playback info (written by monitor script via fetchFrom)
+    - name: track_name
+      description: Currently playing track name
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "track_name"
+
+    - name: artist_name
+      description: Artist name(s)
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "artist_name"
+
+    - name: album_name
+      description: Album name
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "album_name"
+
+    - name: album_art_url
+      description: Album artwork URL (640x640)
+      type: string
+      subType: image
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "album_art_url"
+      exposable: true
+
+    - name: is_playing
+      description: Whether Spotify is currently playing
+      type: bool
+      label: current
+      persistent: false
+      initialValue: false
+      fetchFrom: mrs_raw_output
+      onFetchData: "is_playing"
+
+    - name: progress_ms
+      description: Playback position in milliseconds
+      type: int
+      label: current
+      persistent: false
+      initialValue: 0
+      fetchFrom: mrs_raw_output
+      onFetchData: "progress_ms"
+      volatile: true
+
+    - name: duration_ms
+      description: Track duration in milliseconds
+      type: int
+      label: current
+      persistent: false
+      initialValue: 0
+      fetchFrom: mrs_raw_output
+      onFetchData: "duration_ms"
+
+    - name: device_name
+      description: Active Spotify device name
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "device_name"
+
+    - name: volume_percent
+      description: Volume (0-100)
+      type: int
+      label: current
+      persistent: false
+      initialValue: 0
+      fetchFrom: mrs_raw_output
+      onFetchData: "volume_percent"
+
+    - name: last_error
+      description: Last error message from the Spotify API
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "last_error"
+
+    - name: summary
+      description: Human-readable status line set by the MRS monitor on each tick
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      volatile: true
+
+    # Control action (written by frontend via PUT /api/v1/states/{id}/spotify_action)
+    - name: spotify_action
+      description: |
+        Pending playback action: play | pause | next | previous | volume:N (0-100).
+        Set externally via PUT /api/v1/states/{id}/spotify_action.
+        Cleared by the monitor script returning spotify_action="" via fetchFrom.
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "spotify_action"
+
+    # OAuth callback support — populated by GET /api/v1/oauth/callback?state=<want-name>
+    - name: webhook_payload
+      description: OAuth callback payload from GET /api/v1/oauth/callback
+      type: object
+      label: current
+      persistent: false
+      initialValue: null
+      fetchFrom: mrs_raw_output
+      onFetchData: "webhook_payload"
+
+    - name: rate_limit_until
+      description: ISO timestamp until which the Spotify API is rate-limited. Set/cleared via fetchFrom.
+      type: string
+      label: current
+      persistent: true
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "rate_limit_until"
+
+    - name: oauth_url
+      description: Spotify authorization URL. Non-empty when refresh token is missing — used by the frontend to show a "Connect to Spotify" button.
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "oauth_url"
+
+    - name: oauth_code
+      description: Authorization code from Spotify OAuth flow. Set by /oauth/callback handler. Cleared by the monitor script returning oauth_code="" via fetchFrom after processing.
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      fetchFrom: mrs_raw_output
+      onFetchData: "oauth_code"
+
+    # MRS agent config fields (read by monitor_mrs_agent from state)
+    - name: skill_path
+      description: Path to the monitor Python script
+      type: string
+      label: current
+      persistent: true
+      initialValue: ""
+
+    - name: skill_json_arg_template
+      description: JSON arg template rebuilt each tick with current state values
+      type: string
+      label: current
+      persistent: true
+      initialValue: ""
+
+    - name: skill_json_arg
+      description: Computed JSON arg string passed to the monitor script
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      volatile: true
+
+    - name: skill_timeout_seconds
+      description: Script execution timeout in seconds
+      type: int
+      label: goal
+      persistent: true
+      initialValue: 10
+
+    - name: skill_poll_interval_ms
+      description: Action-check interval in milliseconds. Small value keeps controls responsive; the script internally throttles Spotify API calls to STATE_POLL_INTERVAL_MS.
+      type: int
+      label: goal
+      persistent: true
+      initialValue: 300
+
+    - name: last_state_poll_at
+      description: Unix timestamp (ms) of the last successful Spotify playback state fetch. Used by the script to throttle API calls.
+      type: string
+      label: current
+      persistent: false
+      initialValue: "0"
+      fetchFrom: mrs_raw_output
+      onFetchData: "last_state_poll_at"
+      volatile: true
+
+    # MRS raw output container
+    - name: mrs_raw_output
+      description: Raw JSON output from the monitor script
+      type: object
+      label: current
+      persistent: false
+      initialValue: null
+      volatile: true
+
+    # System fields that oscillate on every MRS monitor tick — exclude from hash
+    - name: achieving_percentage
+      description: MRS poll-cycle progress (70=polling, 100=done). Oscillates; excluded from hash.
+      type: int
+      label: current
+      persistent: false
+      initialValue: 0
+      volatile: true
+
+    - name: action_by_agent
+      description: Agent type that last updated state. Changes on every tick.
+      type: string
+      label: current
+      persistent: false
+      initialValue: ""
+      volatile: true
+
+  onInitialize:
+    current:
+      skill_path: "~/.mywant/custom-types/mywant-spotify-plugin/main.py"
+      skill_json_arg_template: '{"action":"%{spotify_action}","oauth_code":"%{oauth_code}","rate_limit_until":"%{rate_limit_until}","last_state_poll_at":"%{last_state_poll_at}"}'
+    goal:
+      skill_timeout_seconds: 5
+
+  requires:
+    - monitor_mrs_agent
+
+  examples:
+    - name: My Spotify Player
+      description: Show currently playing track and control playback
+      want:
+        metadata:
+          name: my-spotify
+          type: spotify
+        spec:
+          params: {}
