@@ -258,7 +258,7 @@ wantType:
   onInitialize:
     current:
       skill_path: "~/.mywant/custom-types/mywant-spotify-plugin/main.py"
-      skill_json_arg_template: '{"action":"%{spotify_action}","oauth_code":"%{oauth_code}","rate_limit_until":"%{rate_limit_until}","last_state_poll_at":"%{last_state_poll_at}"}'
+      skill_json_arg_template: '{"action":"%{spotify_action}","oauth_code":"%{oauth_code}","rate_limit_until":"%{rate_limit_until}","last_state_poll_at":"%{last_state_poll_at}","want_name":"%{want_name}"}'
     goal:
       skill_timeout_seconds: 5
 

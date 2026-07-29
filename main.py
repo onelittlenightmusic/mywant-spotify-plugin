@@ -3,7 +3,11 @@
 Spotify now-playing monitor + playback controller.
 
 Called by monitor_mrs_agent on each polling tick. Receives a JSON argument:
-  {"action":"","oauth_code":"","rate_limit_until":"","last_state_poll_at":""}
+  {"action":"","oauth_code":"","rate_limit_until":"","last_state_poll_at":"",
+   "want_name":""}
+
+"want_name" is the engine-provided %{want_name} — used as the OAuth `state` so
+the callback can find this want regardless of what it was named.
 
 Tokens are stored in ~/.mywant/secrets/spotify_tokens.json (NOT in args/logs).
 Credentials come from environment variables:
@@ -188,16 +192,24 @@ def execute_action(action: str, token: str) -> str:
     return ""
 
 
-def build_oauth_url(client_id: str) -> str:
-    if not client_id:
+def build_oauth_url(client_id: str, want_name: str) -> str:
+    """Authorization URL for the card's "Connect to Spotify" button.
+
+    The OAuth `state` carries the want name so /api/v1/oauth/callback can find
+    the want to hand the authorization code back to. The name arrives from the
+    engine as %{want_name} in the arg template, so the button works whatever
+    the want is called.
+    """
+    if not client_id or not want_name:
         return ""
     mywant_server = os.environ.get("MYWANT_SERVER", "http://127.0.0.1:8080")
     redirect_uri = urllib.parse.quote(f"{mywant_server}/api/v1/oauth/callback", safe="")
     scope = urllib.parse.quote("user-read-playback-state user-modify-playback-state user-read-currently-playing", safe="")
+    state = urllib.parse.quote(want_name, safe="")
     return (
         f"https://accounts.spotify.com/authorize"
         f"?client_id={client_id}&response_type=code"
-        f"&redirect_uri={redirect_uri}&scope={scope}&state=my-spotify"
+        f"&redirect_uri={redirect_uri}&scope={scope}&state={state}"
     )
 
 
@@ -237,6 +249,7 @@ def main() -> None:
     action           = clean(arg.get("action", ""))
     oauth_code       = clean(arg.get("oauth_code", ""))
     rate_limit_until = clean(arg.get("rate_limit_until", ""))
+    want_name        = clean(arg.get("want_name", ""))
     last_state_poll_at = float(clean(arg.get("last_state_poll_at", "")) or "0")
     now_ms = time.time() * 1000
     state_poll_due = (now_ms - last_state_poll_at) >= STATE_POLL_INTERVAL_MS
@@ -284,7 +297,7 @@ def main() -> None:
     if not refresh_tok:
         result = empty_result(
             "Spotify authorization required. Click the button below to connect.",
-            build_oauth_url(client_id),
+            build_oauth_url(client_id, want_name),
         )
         print(json.dumps(result, ensure_ascii=False), flush=True)
         return

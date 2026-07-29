@@ -40,7 +40,7 @@ Then restart the server so the want type and its agent are registered.
      SPOTIFY_CLIENT_SECRET: <your client secret>
    ```
 
-3. Deploy the want with the name `my-spotify`:
+3. Deploy the want under any name:
 
    ```sh
    mywant wants create -f - <<'YAML'
@@ -53,12 +53,11 @@ Then restart the server so the want type and its agent are registered.
    YAML
    ```
 
-   The name matters: the OAuth `state` parameter carries it, and that is how the
-   callback finds the want to hand the authorization code to. The
-   "Connect to Spotify" button rendered on the card is hardwired to
-   `my-spotify`; other names work only via `oauth_helper.py --want-name`.
+4. Authorize by clicking **Connect to Spotify** on the card, and approve in the
+   browser. The want picks up the authorization code on its next tick and
+   exchanges it for a refresh token. This is a one-time step.
 
-4. Authorize:
+   The equivalent from the shell:
 
    ```sh
    SPOTIFY_CLIENT_ID=xxx SPOTIFY_CLIENT_SECRET=yyy \
@@ -66,14 +65,15 @@ Then restart the server so the want type and its agent are registered.
      --want-name my-spotify
    ```
 
-   Approve in the browser that opens. The want picks up the code on its next
-   tick and exchanges it for a refresh token. This is a one-time step.
-
-   As an alternative to steps 3–4, deploy the want first and click
-   **Connect to Spotify** on the card — the same flow, driven from the UI.
+   Either way the OAuth `state` parameter carries the want's name, which is how
+   `/api/v1/oauth/callback` finds the want to hand the code to. The name reaches
+   the monitor script as the engine-provided `%{want_name}` placeholder, so no
+   particular want name is required.
 
 ## Requirements
 
+- A MyWant server whose MRS agent expands `%{want_name}` in
+  `skill_json_arg_template` (used for the OAuth `state`)
 - Python 3.10+ (standard library; `certifi` is used if present)
 - A Spotify account. **Premium is required for playback control** — the Web API
   rejects play/pause/next/volume on free accounts. Now-playing display works on
