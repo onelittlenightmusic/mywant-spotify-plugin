@@ -29,11 +29,17 @@ wantType:
       riffable: source
       user-control: "true"
 
+  # The track is what this want is finally about, so X on the card lands on it:
+  # the whole-want naming shortcut opens the Aura editor on the final result's
+  # source field, and here that is the song playing right now.
+  finalResultField: track_name
+
   state:
     # Playback info (written by monitor script via fetchFrom)
     - name: track_name
       description: Currently playing track name
       type: string
+      subType: song
       label: current
       persistent: false
       initialValue: ""
@@ -52,6 +58,7 @@ wantType:
     - name: album_name
       description: Album name
       type: string
+      subType: album
       label: current
       persistent: false
       initialValue: ""

@@ -144,11 +144,15 @@ function SpotifyContentSection({ want }) {
   }
 
   // ── Responsive layout via CSS container queries ───────────────────────────────
-  // wc-auto is the root element so height:100% resolves directly against the flex parent.
-  // wc-main: compact player (always visible)
-  // wc-aside: large album art (appears when card is wide, e.g. maximized)
+  // wc-frame is the root element so height:100% resolves directly against the
+  // flex parent. This is the shared want-card frame (see CardFrame.tsx):
+  //   wc-detail: the compact player — always visible, and on the LEFT here
+  //              because -detail-first reverses the usual order; a player is
+  //              read controls-first.
+  //   wc-eye:    the large album art. Hidden while narrow (-collapse-eye),
+  //              beside the player when wide, on top when maximised.
   return e('div', {
-    className: 'wc-auto',
+    className: 'wc-frame wc-frame-detail-first wc-frame-collapse-eye',
     style: {
       position: 'relative', overflow: 'hidden',
       borderRadius: 12, background: 'linear-gradient(135deg, #191414 0%, #282828 100%)',
@@ -165,7 +169,7 @@ function SpotifyContentSection({ want }) {
     e('style', null, '@keyframes spotify-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}'),
 
       // ── Main: compact player ─────────────────────────────────────────────────
-      e('div', { className: 'wc-main', style: { justifyContent: 'center', position: 'relative', zIndex: 1 } },
+      e('div', { className: 'wc-detail', style: { justifyContent: 'center', position: 'relative', zIndex: 1 } },
         e('div', { style: { padding: '10px 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 } },
           // Thumb + info row
           e('div', { style: { display: 'flex', gap: 10, alignItems: 'center' } },
@@ -202,7 +206,7 @@ function SpotifyContentSection({ want }) {
       ),
 
       // ── Aside: large album art (visible when card is wide) ───────────────────
-      e('div', { className: 'wc-aside', style: { alignItems: 'center', justifyContent: 'center', padding: '12px 12px 12px 0', position: 'relative', zIndex: 1 } },
+      e('div', { className: 'wc-eye', style: { alignItems: 'center', justifyContent: 'center', padding: '12px 12px 12px 0', position: 'relative', zIndex: 1 } },
         e('div', { className: 'wc-sp-art-container', style: {
           width: '100%', height: '100%', maxWidth: 280, maxHeight: 280,
           borderRadius: 10, overflow: 'hidden',
