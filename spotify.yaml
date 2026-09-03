@@ -157,7 +157,7 @@ wantType:
       description: OAuth callback payload from GET /api/v1/oauth/callback
       type: object
       label: current
-      persistent: false
+      persistent: true  # survive the restart the OAuth callback itself triggers (see engine prepareForRestart)
       initialValue: null
       fetchFrom: mrs_raw_output
       onFetchData: "webhook_payload"
@@ -184,7 +184,7 @@ wantType:
       description: Authorization code from Spotify OAuth flow. Set by /oauth/callback handler. Cleared by the monitor script returning oauth_code="" via fetchFrom after processing.
       type: string
       label: current
-      persistent: false
+      persistent: true  # survive the restart the OAuth callback itself triggers (see engine prepareForRestart)
       initialValue: ""
       fetchFrom: mrs_raw_output
       onFetchData: "oauth_code"
