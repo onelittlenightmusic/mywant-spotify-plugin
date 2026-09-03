@@ -26,6 +26,12 @@ import urllib.request
 from datetime import datetime, timezone
 
 TOKENS_FILE = os.path.expanduser("~/.mywant/secrets/spotify_tokens.json")
+# Our own record of when we last polled Spotify, keyed by want name. The engine
+# is supposed to round-trip last_state_poll_at through want state, but that has
+# been unreliable — when it comes back as "0" the 5s throttle never engages and
+# the script polls on every agent tick, which gets the app 429'd. This file is
+# the throttle's source of truth; the arg value is only a fallback.
+POLL_STATE_FILE = os.path.expanduser("~/.mywant/secrets/spotify_poll_state.json")
 
 try:
     import certifi
@@ -61,6 +67,33 @@ def get_credentials():
     client_id = os.environ.get("SPOTIFY_CLIENT_ID", "").strip()
     client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip()
     return client_id, client_secret
+
+
+def load_last_poll(want_name: str) -> float:
+    """Last-poll timestamp (ms) for this want from POLL_STATE_FILE, or 0."""
+    try:
+        with open(POLL_STATE_FILE) as f:
+            return float(json.load(f).get(want_name or "_", 0))
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError):
+        return 0.0
+
+
+def save_last_poll(want_name: str, ts_ms: float) -> None:
+    """Record that we polled Spotify for this want just now. Best-effort."""
+    try:
+        os.makedirs(os.path.dirname(POLL_STATE_FILE), exist_ok=True)
+        try:
+            with open(POLL_STATE_FILE) as f:
+                d = json.load(f)
+            if not isinstance(d, dict):
+                d = {}
+        except (FileNotFoundError, json.JSONDecodeError):
+            d = {}
+        d[want_name or "_"] = ts_ms
+        with open(POLL_STATE_FILE, "w") as f:
+            json.dump(d, f)
+    except OSError:
+        pass
 
 
 def is_token_valid(access_token: str, token_expiry: str) -> bool:
@@ -250,7 +283,13 @@ def main() -> None:
     oauth_code       = clean(arg.get("oauth_code", ""))
     rate_limit_until = clean(arg.get("rate_limit_until", ""))
     want_name        = clean(arg.get("want_name", ""))
-    last_state_poll_at = float(clean(arg.get("last_state_poll_at", "")) or "0")
+    # Trust whichever source is more recent: the arg (engine state round-trip)
+    # or our own file. If the round-trip breaks and sends "0", the file keeps
+    # the throttle honest so we don't hammer the API on every tick.
+    last_state_poll_at = max(
+        float(clean(arg.get("last_state_poll_at", "")) or "0"),
+        load_last_poll(want_name),
+    )
     now_ms = time.time() * 1000
     state_poll_due = (now_ms - last_state_poll_at) >= STATE_POLL_INTERVAL_MS
 
@@ -340,6 +379,11 @@ def main() -> None:
     # Fetch playback state
     progress(70, "fetching playback state")
     status, data = spotify_api("GET", "/me/player", new_token)
+    # Record the call the moment it is made — before any early return below — so
+    # the throttle holds even on a 429/401, and even if the engine drops the
+    # returned last_state_poll_at.
+    poll_ts = int(time.time() * 1000)
+    save_last_poll(want_name, poll_ts)
 
     if status == 429:
         from datetime import timedelta
@@ -369,7 +413,7 @@ def main() -> None:
             return
 
     result = empty_result()
-    result["last_state_poll_at"] = str(int(time.time() * 1000))
+    result["last_state_poll_at"] = str(poll_ts)
 
     if rate_limit_until:
         result["rate_limit_until"] = ""

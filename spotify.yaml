@@ -230,11 +230,15 @@ wantType:
       description: Unix timestamp (ms) of the last successful Spotify playback state fetch. Used by the script to throttle API calls.
       type: string
       label: current
-      persistent: false
+      # Must survive between ticks: %{last_state_poll_at} is fed back into the
+      # script's arg each tick, and that is the only thing stopping it from
+      # calling the Spotify API on every 300ms agent tick (→ 429). It used to be
+      # persistent:false + volatile:true, which reset it to "0" every tick — the
+      # throttle never engaged. Matches rate_limit_until, which round-trips fine.
+      persistent: true
       initialValue: "0"
       fetchFrom: mrs_raw_output
       onFetchData: "last_state_poll_at"
-      volatile: true
 
     # MRS raw output container
     - name: mrs_raw_output
