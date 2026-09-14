@@ -34,6 +34,25 @@ wantType:
   # source field, and here that is the song playing right now.
   finalResultField: track_name
 
+  parameters:
+    # X on this card marks the ALBUM, not the track.
+    #
+    # What the card answers with is the track playing; what is worth keeping is
+    # the album it is from, and the track is one of the things that were true of
+    # that album at the moment it was marked. So the mark is about album_name
+    # (subType: album → an album thing), and everything else the player knew at
+    # that moment is written onto that album as labels — its cover most of all,
+    # which the Thing card then draws the album over
+    # (url/album `background: "@album_art_url"`).
+    #
+    # `underfoot` because this acts ON this card: X is otherwise board-wide and
+    # would fire wherever the character happened to be standing.
+    - { name: input_button,     description: Button that marks what is playing, type: string, default: button-x }
+    - { name: input_condition,  description: Only while standing on this card,  type: string, default: underfoot }
+    - { name: aura_mark_field,  description: The field a mark is about,          type: string, default: album_name }
+    - { name: aura_mark_labels, description: Fields recorded onto the marked thing,
+        type: string, default: "album_art_url artist_name track_name album_name" }
+
   state:
     # Playback info (written by monitor script via fetchFrom)
     - name: track_name
