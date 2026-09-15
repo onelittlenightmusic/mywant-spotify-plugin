@@ -73,6 +73,8 @@ wantType:
       initialValue: ""
       fetchFrom: mrs_raw_output
       onFetchData: "artist_name"
+      # Part of what was playing, so a past card can say who and from what.
+      exposable: true
 
     - name: album_name
       description: Album name
@@ -83,6 +85,8 @@ wantType:
       initialValue: ""
       fetchFrom: mrs_raw_output
       onFetchData: "album_name"
+      # Part of what was playing, so a past card can say who and from what.
+      exposable: true
 
     - name: album_art_url
       description: Album artwork URL (640x640)
