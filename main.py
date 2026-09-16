@@ -31,6 +31,12 @@ TOKENS_FILE = os.path.expanduser("~/.mywant/secrets/spotify_tokens.json")
 # been unreliable — when it comes back as "0" the 5s throttle never engages and
 # the script polls on every agent tick, which gets the app 429'd. This file is
 # the throttle's source of truth; the arg value is only a fallback.
+# Beside the timestamp it now keeps two more facts per want, for the same
+# reason: whether playback was going (which decides how soon we may ask again)
+# and when a rate limit lifts. Both used to live only in want state, and a
+# round-trip that came back empty turned the backoff off entirely — which is
+# how a limited app went on being asked every five seconds until Spotify
+# answered with hours of Retry-After.
 POLL_STATE_FILE = os.path.expanduser("~/.mywant/secrets/spotify_poll_state.json")
 
 try:
@@ -69,17 +75,33 @@ def get_credentials():
     return client_id, client_secret
 
 
-def load_last_poll(want_name: str) -> float:
-    """Last-poll timestamp (ms) for this want from POLL_STATE_FILE, or 0."""
+def load_poll_state(want_name: str) -> dict:
+    """What we last knew about polling this want: when, whether it was playing,
+    and when a rate limit lifts. Older files kept only the timestamp."""
     try:
         with open(POLL_STATE_FILE) as f:
-            return float(json.load(f).get(want_name or "_", 0))
-    except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError):
-        return 0.0
+            d = json.load(f)
+        entry = d.get(want_name or "_", 0)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError, AttributeError):
+        return {"at": 0.0, "playing": False, "rate_limit_until": ""}
+    if isinstance(entry, dict):
+        try:
+            at = float(entry.get("at", 0))
+        except (TypeError, ValueError):
+            at = 0.0
+        return {
+            "at": at,
+            "playing": bool(entry.get("playing", False)),
+            "rate_limit_until": str(entry.get("rate_limit_until", "") or ""),
+        }
+    try:
+        return {"at": float(entry), "playing": False, "rate_limit_until": ""}
+    except (TypeError, ValueError):
+        return {"at": 0.0, "playing": False, "rate_limit_until": ""}
 
 
-def save_last_poll(want_name: str, ts_ms: float) -> None:
-    """Record that we polled Spotify for this want just now. Best-effort."""
+def save_poll_state(want_name: str, **fields) -> None:
+    """Merge facts about this want's polling into POLL_STATE_FILE. Best-effort."""
     try:
         os.makedirs(os.path.dirname(POLL_STATE_FILE), exist_ok=True)
         try:
@@ -89,7 +111,15 @@ def save_last_poll(want_name: str, ts_ms: float) -> None:
                 d = {}
         except (FileNotFoundError, json.JSONDecodeError):
             d = {}
-        d[want_name or "_"] = ts_ms
+        key = want_name or "_"
+        entry = d.get(key)
+        if not isinstance(entry, dict):
+            try:
+                entry = {"at": float(entry)}
+            except (TypeError, ValueError):
+                entry = {}
+        entry.update(fields)
+        d[key] = entry
         with open(POLL_STATE_FILE, "w") as f:
             json.dump(d, f)
     except OSError:
@@ -263,7 +293,27 @@ def empty_result(error: str = "", oauth_url: str = "") -> dict:
     }
 
 
-STATE_POLL_INTERVAL_MS = 5000  # fetch Spotify playback state at most once per 5s
+# How soon we may ask Spotify again.
+#
+# While something is playing the card is a live player — a progress bar, a
+# track that changes — and five seconds is what keeps it honest. While nothing
+# is playing there is nothing to follow, and asking twelve times a minute all
+# day is most of what the app spends its rate limit on. The idle interval is
+# what it costs to notice that playback has STARTED somewhere else, which is
+# worth half a minute of lag.
+PLAYING_POLL_INTERVAL_MS = 5000
+IDLE_POLL_INTERVAL_MS    = 30000
+
+
+def rate_limit_remaining(until_iso: str) -> int:
+    """Seconds left on a rate limit, or 0 when it has lifted / is unreadable."""
+    if not until_iso:
+        return 0
+    try:
+        until_dt = datetime.fromisoformat(until_iso.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    return max(0, int((until_dt - datetime.now(timezone.utc)).total_seconds()))
 
 
 def main() -> None:
@@ -286,12 +336,31 @@ def main() -> None:
     # Trust whichever source is more recent: the arg (engine state round-trip)
     # or our own file. If the round-trip breaks and sends "0", the file keeps
     # the throttle honest so we don't hammer the API on every tick.
+    poll_state = load_poll_state(want_name)
     last_state_poll_at = max(
         float(clean(arg.get("last_state_poll_at", "")) or "0"),
-        load_last_poll(want_name),
+        poll_state["at"],
     )
     now_ms = time.time() * 1000
-    state_poll_due = (now_ms - last_state_poll_at) >= STATE_POLL_INTERVAL_MS
+    interval = PLAYING_POLL_INTERVAL_MS if poll_state["playing"] else IDLE_POLL_INTERVAL_MS
+    state_poll_due = (now_ms - last_state_poll_at) >= interval
+
+    # A rate limit is obeyed FIRST, before anything that talks to Spotify —
+    # including the token refresh, which is a request to Spotify like any other
+    # and was being made on every tick of a limited want. Whichever source
+    # knows about the limit is believed: the want state, or our own file for
+    # when that round-trip is lost.
+    limit_until = rate_limit_until or poll_state["rate_limit_until"]
+    remaining = rate_limit_remaining(limit_until)
+    if remaining > 0 and not action and not oauth_code:
+        out = {"last_error": f"Rate limited by Spotify ({remaining}s remaining)"}
+        if not rate_limit_until:
+            # Say it back, so the card and the want state agree with the file.
+            out["rate_limit_until"] = limit_until
+        print(json.dumps(out, ensure_ascii=False), flush=True)
+        return
+    if remaining == 0 and poll_state["rate_limit_until"]:
+        save_poll_state(want_name, rate_limit_until="")
 
     # Tokens come from file, not args
     current_token, current_expiry, refresh_tok = load_tokens()
@@ -364,18 +433,6 @@ def main() -> None:
         time.sleep(0.1)
         executed_action = True
 
-    # Rate-limit backoff
-    if rate_limit_until and not action:
-        try:
-            until_dt = datetime.fromisoformat(rate_limit_until.replace("Z", "+00:00"))
-            remaining = int((until_dt - datetime.now(timezone.utc)).total_seconds())
-            if remaining > 0:
-                result = {"last_error": f"Rate limited by Spotify ({remaining}s remaining)"}
-                print(json.dumps(result, ensure_ascii=False), flush=True)
-                return
-        except Exception:
-            pass
-
     # Fetch playback state
     progress(70, "fetching playback state")
     status, data = spotify_api("GET", "/me/player", new_token)
@@ -383,13 +440,17 @@ def main() -> None:
     # the throttle holds even on a 429/401, and even if the engine drops the
     # returned last_state_poll_at.
     poll_ts = int(time.time() * 1000)
-    save_last_poll(want_name, poll_ts)
+    save_poll_state(want_name, at=poll_ts)
 
     if status == 429:
         from datetime import timedelta
         retry_after = (data or {}).get("retry_after", 30)
         until_dt = datetime.now(timezone.utc) + timedelta(seconds=retry_after)
         until_local = datetime.fromtimestamp(until_dt.timestamp()).strftime('%H:%M:%S')
+        # Kept in the file as well as returned: the return trip through want
+        # state is what used to be lost, and losing it means polling straight
+        # through the limit.
+        save_poll_state(want_name, rate_limit_until=until_dt.isoformat())
         result = {
             "rate_limit_until": until_dt.isoformat(),
             "last_error": f"Rate limited by Spotify (until {until_local})",
@@ -435,12 +496,15 @@ def main() -> None:
                 result["album_art_url"] = images[0].get("url", "")
             result["duration_ms"]  = item.get("duration_ms", 0)
         result["is_playing"]   = data.get("is_playing", False)
+        # Decides how soon we may ask again — see the interval constants.
+        save_poll_state(want_name, playing=bool(result["is_playing"]))
         result["progress_ms"]  = data.get("progress_ms", 0)
         device = data.get("device") or {}
         result["device_name"]    = device.get("name", "")
         result["volume_percent"] = device.get("volume_percent", 0)
     elif status == 204:
         result["last_error"] = ""
+        save_poll_state(want_name, playing=False)
     elif status and status != 200:
         result["last_error"] = f"Spotify API returned {status}"
 

@@ -243,7 +243,7 @@ wantType:
       initialValue: 10
 
     - name: skill_poll_interval_ms
-      description: Action-check interval in milliseconds. Small value keeps controls responsive; the script internally throttles Spotify API calls to STATE_POLL_INTERVAL_MS.
+      description: Action-check interval in milliseconds. Small value keeps controls responsive; the script internally throttles Spotify API calls (5s while playing, 30s while idle) and refuses to call at all while rate limited.
       type: int
       label: goal
       persistent: true
