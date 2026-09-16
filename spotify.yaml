@@ -28,6 +28,10 @@ wantType:
     labels:
       riffable: source
       user-control: "true"
+      # The tile says the one thing you look at a player for across a room:
+      # whether it is playing. The track's name is the card's business.
+      tile-icon: is_playing
+      tile-icons: "true=Play,false=Pause"
 
   # The track is what this want is finally about, so X on the card lands on it:
   # the whole-want naming shortcut opens the Aura editor on the final result's
